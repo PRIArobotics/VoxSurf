@@ -41,7 +41,6 @@ using namespace std;
 
 // --------------------------------------------------------------
 
-#define VOXEL_RESOLUTION  128
 #define VOXEL_FILL_INSIDE 1
 #define VOXEL_ROBUST_FILL 0
 
@@ -49,7 +48,6 @@ using namespace std;
 
 #define FP_POW    16
 #define FP_SCALE  (1<<FP_POW)
-#define BOX_SCALE v3f(VOXEL_RESOLUTION*FP_SCALE)
 
 #define ALONG_X  1
 #define ALONG_Y  2
@@ -92,6 +90,42 @@ void saveAsVox(const char *fname, const Array3D<uchar>& voxs)
   }
   fwrite(palette.raw(), sizeof(v3b), 256, f);
   fclose(f);
+}
+
+// saves a voxel file (.slab.vox format, can be imported by MagicaVoxel)
+void saveAsBinvox(const char* fname, const Array3D<uchar>& voxs, unsigned int gridsize)
+{
+    ofstream output(fname, ios::out | ios::binary);
+    sl_assert(output.good());
+    long sx = voxs.xsize(), sy = voxs.ysize(), sz = voxs.zsize();
+    // Write ASCII header
+    output << "#binvox 1" << endl;
+    output << "dim " << sx << " " << sy << " " << sz << "" << endl;
+    output << "translate " << 0 << " " << 0 << " " << 0 << endl;
+    output << "scale " << 1 << endl;
+    output << "data" << endl;
+
+    uchar currentvalue = voxs.at(0, 0, 0);
+    uchar current_seen = 0;
+    ForIndex(i, sx) {
+        ForRangeReverse(j, sy - 1, 0) {
+            ForIndex(k, sz) {
+                uchar nextvalue = voxs.at(i, j, k);
+                if (nextvalue != currentvalue || current_seen == (uchar)255) {
+                    output.write((char*)&currentvalue, 1);
+                    output.write((char*)&current_seen, 1);
+                    currentvalue = nextvalue;
+                    current_seen = 1;
+                }
+                else {
+                    current_seen++;
+                }
+            }
+        }
+    }
+    output.write((char*)&currentvalue, 1);
+    output.write((char*)&current_seen, 1);
+    output.close();
 }
 
 // --------------------------------------------------------------
@@ -275,19 +309,81 @@ void fillInside(Array3D<uchar>& _voxs)
 
 // --------------------------------------------------------------
 
+void printExample() {
+    cout << "Example: cuda_voxelizer -f /home/jeroen/bunny.ply -s 512" << endl;
+}
+
+void printHelp() {
+    fprintf(stdout, "\n## HELP  \n");
+    cout << "Program options: " << endl << endl;
+    cout << " -f <path to model file: .ply, .obj, .3ds> (required)" << endl;
+    cout << " -s <voxelization grid size, power of 2: 8 -> 512, 1024, ... (default: 256)>" << endl;
+    printExample();
+    cout << endl;
+}
+
+inline bool file_exists(const std::string& name) {
+    std::ifstream f(name.c_str());
+    return f.good();
+}
+
+// Default options
+string filename = "";
+string filename_base = "";
+unsigned int gridsize = 256;
+
+// Parse the program parameters and set them as global variables
+void parseProgramParameters(int argc, char* argv[]) {
+    if (argc < 2) { // not enough arguments
+        fprintf(stdout, "Not enough program parameters. \n \n");
+        printHelp();
+        exit(0);
+    }
+    bool filegiven = false;
+    for (int i = 1; i < argc; i++) {
+        if (string(argv[i]) == "-f") {
+            filename = argv[i + 1];
+            filename_base = filename.substr(0, filename.find_last_of("."));
+            filegiven = true;
+            if (!file_exists(filename)) {
+                fprintf(stdout, "[Err] File does not exist / cannot access: %s \n", filename.c_str());
+                exit(1);
+            }
+            i++;
+        }
+        else if (string(argv[i]) == "-s") {
+            gridsize = atoi(argv[i + 1]);
+            i++;
+        }
+        else if (string(argv[i]) == "-h") {
+            printHelp();
+            exit(0);
+        }
+    }
+    if (!filegiven) {
+        fprintf(stdout, "[Err] You didn't specify a file using -f (path). This is required. Exiting. \n");
+        printExample();
+        exit(1);
+    }
+    fprintf(stdout, "[Info] Filename: %s \n", filename.c_str());
+    fprintf(stdout, "[Info] Grid size: %i \n", gridsize);
+}
+
+
 int main(int argc, char **argv)
 {
+  parseProgramParameters(argc, argv);
 
   try {
 
     // load triangle mesh
-    TriangleMesh_Ptr mesh(loadTriangleMesh(SRC_PATH "/model.stl"));
+    TriangleMesh_Ptr mesh(loadTriangleMesh(filename.c_str()));
     // produce (fixed fp) integer vertices and triangles
     std::vector<v3i> pts;
     std::vector<v3u> tris;
     {
       float factor = 0.95f;
-      m4x4f boxtrsf = scaleMatrix(BOX_SCALE)
+      m4x4f boxtrsf = scaleMatrix(v3f(gridsize * FP_SCALE))
         * scaleMatrix(v3f(1.f) / tupleMax(mesh->bbox().extent()))
         * translationMatrix((1 - factor) * 0.5f * mesh->bbox().extent())
         * scaleMatrix(v3f(factor))
@@ -298,7 +394,7 @@ int main(int argc, char **argv)
       ForIndex(p, mesh->numVertices()) {
         v3f pt   = mesh->posAt(p);
         v3f bxpt = boxtrsf.mulPoint(pt);
-        v3i ipt  = v3i(clamp(round(bxpt), v3f(0.0f), BOX_SCALE - v3f(1.0f)));
+        v3i ipt  = v3i(clamp(round(bxpt), v3f(0.0f), v3f(gridsize * FP_SCALE) - v3f(1.0f)));
         pts[p]   = ipt;
       }
       // prepare triangles
@@ -310,7 +406,7 @@ int main(int argc, char **argv)
     }
 
     // rasterize into voxels
-    v3u resolution(mesh->bbox().extent() / tupleMax(mesh->bbox().extent()) * float(VOXEL_RESOLUTION));
+    v3u resolution(mesh->bbox().extent() / tupleMax(mesh->bbox().extent()) * float(gridsize));
     Array3D<uchar> voxs(resolution);
     voxs.fill(0);
     {
@@ -341,7 +437,10 @@ int main(int argc, char **argv)
 #endif
 
     // save the result
-    saveAsVox(SRC_PATH "/out.slab.vox", voxs);
+    //string filename_output = filename_base + string("_") + to_string(gridsize) + string(".slab.vox");
+    //saveAsVox(filename_output.c_str(), voxs);
+    string filename_output = filename_base + string("_") + to_string(gridsize) + string(".binvox");
+    saveAsBinvox(filename_output.c_str(), voxs, gridsize);
 
     // report some stats
     int num_in_vox = 0;
