@@ -8,12 +8,12 @@
 /*
 
 Takes as input a file 'model.stl' from the source directory.
-Outputs a voxel file named 'out.slab.vox' that can be imported 
+Outputs a voxel file named 'out.slab.vox' that can be imported
 by 'MagicaVoxel' https://ephtracy.github.io/
 
 Change VOXEL_RESOLUTION  to fit your needs.
 Set    VOXEL_FILL_INSIDE to 1 to fill in the interior
-Set    VOXEL_ROBUST_FILL to 1 to fill in the interior using 
+Set    VOXEL_ROBUST_FILL to 1 to fill in the interior using
        a voting scheme (more robust, slower)
 
 The basic principle is to rasterize triangles using three 2D axis
@@ -25,7 +25,7 @@ Higher resolutions could easily be reached by not storing the
 voxels as a 3D array of booleans (e.g. use blocking or an octree).
 
 For the inside fill to work properly, the mesh has to be perfectly
-watertight, with exactly matching vertices between neighboring 
+watertight, with exactly matching vertices between neighboring
 verticies.
 
 */
@@ -318,6 +318,7 @@ void printHelp() {
     cout << "Program options: " << endl << endl;
     cout << " -f <path to model file: .ply, .obj, .3ds> (required)" << endl;
     cout << " -s <voxelization grid size, power of 2: 8 -> 512, 1024, ... (default: 256)>" << endl;
+    cout << " -o <output file name (default: derived from model file name & grid size)>" << endl;
     printExample();
     cout << endl;
 }
@@ -330,6 +331,8 @@ inline bool file_exists(const std::string& name) {
 // Default options
 string filename = "";
 string filename_base = "";
+string filename_output = "";
+
 unsigned int gridsize = 256;
 
 // Parse the program parameters and set them as global variables
@@ -359,13 +362,24 @@ void parseProgramParameters(int argc, char* argv[]) {
             printHelp();
             exit(0);
         }
+        else if (string(argv[i]) == "-o") {
+            filename_output = argv[i + 1];
+            i++;
+        }
     }
     if (!filegiven) {
         fprintf(stdout, "[Err] You didn't specify a file using -f (path). This is required. Exiting. \n");
         printExample();
         exit(1);
     }
-    fprintf(stdout, "[Info] Filename: %s \n", filename.c_str());
+
+    if (filename_output == "") {
+      //filename_output = filename_base + string("_") + to_string(gridsize) + string(".slab.vox");
+      filename_output = filename_base + string("_") + to_string(gridsize) + string(".binvox");
+    }
+
+    fprintf(stdout, "[Info] Input Filename:  %s \n", filename.c_str());
+    fprintf(stdout, "[Info] Output Filename: %s \n", filename_output.c_str());
     fprintf(stdout, "[Info] Grid size: %i \n", gridsize);
 }
 
@@ -437,9 +451,7 @@ int main(int argc, char **argv)
 #endif
 
     // save the result
-    //string filename_output = filename_base + string("_") + to_string(gridsize) + string(".slab.vox");
     //saveAsVox(filename_output.c_str(), voxs);
-    string filename_output = filename_base + string("_") + to_string(gridsize) + string(".binvox");
     saveAsBinvox(filename_output.c_str(), voxs, gridsize);
 
     // report some stats
