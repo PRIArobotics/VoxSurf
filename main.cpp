@@ -42,7 +42,7 @@ using namespace std;
 // --------------------------------------------------------------
 
 #define VOXEL_FILL_INSIDE 1
-#define VOXEL_ROBUST_FILL 0
+#define VOXEL_ROBUST_FILL 1
 
 // --------------------------------------------------------------
 
@@ -396,7 +396,7 @@ int main(int argc, char **argv)
     std::vector<v3i> pts;
     std::vector<v3u> tris;
     {
-      float factor = 0.95f;
+      float factor = 0.999f;
       m4x4f boxtrsf = scaleMatrix(v3f(gridsize * FP_SCALE))
         * scaleMatrix(v3f(1.f) / tupleMax(mesh->bbox().extent()))
         * translationMatrix((1 - factor) * 0.5f * mesh->bbox().extent())
