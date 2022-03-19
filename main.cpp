@@ -215,6 +215,12 @@ void rasterize(
         (j << FP_POW) + (1 << (FP_POW - 1)), // centered
         tripts[0], tripts[1], tripts[2], depth)) {
         v3i vx = swizzler.backward(v3i(i, j, depth >> FP_POW));
+
+        // TODO dirty hack; why are we even out of bounds?
+        if (vx[0] < 0 || vx[0] >= _voxs.xsize()) continue;
+        if (vx[1] < 0 || vx[1] >= _voxs.ysize()) continue;
+        if (vx[2] < 0 || vx[2] >= _voxs.zsize()) continue;
+
         // tag the voxel as occupied
         // NOTE: voxels are likely to be hit multiple times (e.g. thin features)
         //       we flip the bit every time a hit occurs in a voxel
